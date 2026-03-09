@@ -164,3 +164,7 @@ Finally, verify the whole path end to end:
 3. Send a short test prompt such as `hello` or `summarize this page`.
 4. Check the right-side panel to confirm the current `Agent`, `Provider`, and `Model`.
 5. If the reply is correct, your first Aurogen runtime is ready.
+
+## 📄 License
+
+This project is released under the [MIT License](./LICENSE).

@@ -161,6 +161,10 @@ Agent 配好后，再把消息入口绑定到它：
 4. 查看右侧面板，确认当前显示的 `Agent`、`Provider`、`Model` 是否符合预期。
 5. 如果回复正常，你的第一套 Aurogen 运行时就已经可用了。
 
+## 📄 开源协议
+
+本项目采用 [MIT License](../LICENSE) 开源。
+
 ### 继续阅读
 
 - 查看英文首页与完整文档：[README](../README.md)
