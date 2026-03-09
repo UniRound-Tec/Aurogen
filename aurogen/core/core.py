@@ -176,6 +176,7 @@ class AgentLoop:
             # 多轮调用循环
             iteration = 0
             final_content = None
+            message_tool_content: str | None = None
 
             while iteration < self.MAX_ITERATIONS:
                 iteration += 1
@@ -231,6 +232,10 @@ class AgentLoop:
 
                         result = await self._execute_tool(tool_name, tool_args)
 
+                        # 记录 message 工具发送的内容
+                        if tool_name == "message" and "content" in tool_args:
+                            message_tool_content = tool_args["content"]
+
                         # 发送 TOOL_RESULT 事件
                         await get_channel_manager().notify(session.channel, AgentEvent(
                             session_id=msg.session_id,
@@ -257,11 +262,20 @@ class AgentLoop:
                     f"达到最大迭代次数 ({self.MAX_ITERATIONS})，任务可能未完成。"
                 )
 
+            # message 工具已经通过 channel 直接发送了内容，
+            # 需要将其记录到 session，避免保存空回复
+            if message_tool_content and (not final_content or not final_content.strip()):
+                final_content = message_tool_content
+
             # 保存 assistant 回复到 session
             session.add_message("assistant", final_content)
 
             # 通过 ChannelManager 路由最终回复到对应 channel
-            await get_channel_manager().send(session.channel, session.chat_id, final_content)
+            # 如果 message 工具已经发送过相同内容，跳过重复发送
+            if final_content and final_content != message_tool_content:
+                await get_channel_manager().send(session.channel, session.chat_id, final_content)
+            elif not message_tool_content:
+                await get_channel_manager().send(session.channel, session.chat_id, final_content)
 
             print(f"[AgentLoop] 消息处理完成: {final_content[:50]}...")
 

@@ -1,4 +1,7 @@
-# Aurogen: More OpenClaws
+<div align="center">
+  <img src="./assets/banner.png" alt="Aurogen" width="200">
+  <h2>Aurogen: More OpenClaws</h1>
+</div>
 
 <div align="right">
   <strong>English</strong> | <a href="docs/README.cn.md">简体中文</a>
@@ -111,6 +114,42 @@ cd ./aurogen_web && npm i
 npm run dev
 ```
 
-### First Steps: Set Password and Provider
+### Getting Started: Set Password and Provider
 
-After deployment, open the web panel and follow the setup wizard to configure your password and first Provider.
+1. After deployment, open the web panel and set your password (especially useful when deploying on a cloud server / VPS):
+
+![Set Password](./assets/setup-password.png)
+
+You will see the main dashboard:
+
+![Dashboard](./assets/dashboard.png)
+
+Use the top-right corner to switch themes and languages:
+
+![Theme & Language](./assets/theme-language.png)
+
+2. The left sidebar contains all feature panels. First, click **Providers**:
+
+![Providers Panel](./assets/providers.png)
+
+3. Edit the default Provider — fill in your API Key and Base URL, then click Save.
+
+4. Next, click **Agent** in the sidebar:
+
+![Agent Configuration](./assets/agent-config.png)
+
+5. Make sure the Provider is set to the one you just configured, then set the Model ID. You can choose whether to enable Thinking.
+
+6. (Optional) Click the **Channel** panel to confirm the Web Channel is using the Agent you just configured:
+
+![Channel Configuration](./assets/channel-config.png)
+
+7. You're all set — start chatting in the Web Channel!
+
+![Web Channel Chat](./assets/webchannel-chat.png)
+
+---
+
+### Documentation
+
+> Documentation is being written — stay tuned!

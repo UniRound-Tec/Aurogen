@@ -1,0 +1,46 @@
+{
+    "agents": {
+        "main": {
+            "name": "main",
+            "description": "main agent",
+            "model_settings": {
+                "model": "gpt-5.2",
+                "provider": "openai_custom",
+                "memory_window": 100,
+                "thinking": "high"
+            }
+        }
+    },
+    "providers": {
+        "openai_custom": {
+            "type": "openai_custom",
+            "description": "openai compatible custom provider",
+            "settings": {
+                "api_key": "sk-xxx",
+                "api_base": "https://api.openai.com/v1"
+            }
+        }
+    },
+    "channels": {
+        "web": {
+            "type": "web",
+            "agent_name": "main",
+            "description": "web channel",
+            "settings": {}
+        }
+    },
+    "mcp": {},
+    "auth": {
+        "password": "pwd",
+        "first_login": true
+    },
+    "heartbeat": {
+        "agent_name": "main",
+        "interval_s": 1800,
+        "enabled": true
+    },
+    "cron": {
+        "agent_name": "main",
+        "enabled": true
+    }
+}

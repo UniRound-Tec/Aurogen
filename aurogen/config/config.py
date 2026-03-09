@@ -39,6 +39,8 @@ class ConfigManager:
         with self._file_lock:
             if not self.config_path.exists():
                 example_path = self.config_path.parent / "config_example.json"
+                if not example_path.exists():
+                    example_path = BASE_DIR / "config_example.json"
                 if example_path.exists():
                     shutil.copy2(example_path, self.config_path)
                     from loguru import logger
