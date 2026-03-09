@@ -3,6 +3,8 @@
 # ────────────────────────────────────────────
 FROM nikolaik/python-nodejs:python3.12-nodejs22-slim AS builder
 
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+
 # 构建前端
 WORKDIR /build/aurogen_web
 

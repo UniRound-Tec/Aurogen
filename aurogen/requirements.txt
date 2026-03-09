@@ -39,3 +39,7 @@ python-telegram-bot[httpx]
 
 # Optional: Model Context Protocol (MCP) tool integration
 mcp>=1.26.0
+
+# Web content extraction
+readability-lxml
+lxml_html_clean
