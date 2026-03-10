@@ -193,18 +193,19 @@ echo ^)
 echo.
 echo set "PATH=%%ROOT%%\runtime\python;%%ROOT%%\runtime\python\Scripts;%%ROOT%%\runtime\node;%%PATH%%"
 echo.
-echo echo [aurogen] Starting Aurogen...
+echo echo [aurogen] 启动 Aurogen...
 echo for /f "tokens=*" %%%%v in ^('"%%PYTHON%%" --version'^) do echo [aurogen] Python: %%%%v
 echo for /f "tokens=*" %%%%v in ^('"%%NODE%%" --version'^) do echo [aurogen] Node:   %%%%v
 echo.
-echo cd /d "%%ROOT%%\aurogen"
-echo "%%PYTHON%%" -m uvicorn app.app:app --host 0.0.0.0 --port 8000
-echo.
 echo echo.
 echo echo =====================================================
-echo echo   Aurogen is running.
-echo echo   Open in browser: http://localhost:8000
+echo echo   Aurogen 正在启动...
+echo echo   请在浏览器中访问: http://localhost:8000
 echo echo =====================================================
+echo echo.
+echo.
+echo cd /d "%%ROOT%%\aurogen"
+echo "%%PYTHON%%" -m uvicorn app.app:app --host 0.0.0.0 --port 8000
 echo.
 echo pause
 ) > "%PACKAGE_DIR%\start.bat"
