@@ -835,19 +835,22 @@ function ClawEditor({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25 }}
       onSubmit={(e) => { void handleSubmit(e) }}
-      className="space-y-4"
+      className="space-y-3"
     >
       <div className="flex items-center justify-between gap-4">
-        <div>
-          <p className="text-[11px] tracking-[0.06em] tertiary-text">{t('claws.editClaw')}</p>
-          <div className="mt-1 flex items-center gap-2.5">
-            <h2 className="text-base font-semibold text-[var(--color-text-primary)]">{agent.key}</h2>
-            {agent.builtin ? (
-              <span className="inline-flex items-center gap-1 rounded-full bg-[var(--color-accent-soft)] px-2.5 py-0.5 text-[10px] font-medium text-[var(--color-accent)]">
-                <Shield className="h-2.5 w-2.5" />
-                builtin
-              </span>
-            ) : null}
+        <div className="flex items-center gap-3">
+          <EmojiPicker value={emoji} onChange={setEmoji} />
+          <div>
+            <p className="text-[11px] tracking-[0.06em] tertiary-text">{t('claws.editClaw')}</p>
+            <div className="mt-1 flex items-center gap-2.5">
+              <h2 className="text-base font-semibold text-[var(--color-text-primary)]">{agent.key}</h2>
+              {agent.builtin ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-[var(--color-accent-soft)] px-2.5 py-0.5 text-[10px] font-medium text-[var(--color-accent)]">
+                  <Shield className="h-2.5 w-2.5" />
+                  builtin
+                </span>
+              ) : null}
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -868,10 +871,6 @@ function ClawEditor({
             {t('common.save')}
           </button>
         </div>
-      </div>
-
-      <div className="flex items-center gap-3">
-        <EmojiPicker value={emoji} onChange={setEmoji} />
       </div>
 
       <div className="grid grid-cols-3 gap-3">
@@ -998,7 +997,9 @@ function AddClawModal({
                 </p>
               </div>
 
-              <EmojiPicker value={emoji} onChange={setEmoji} />
+              <div className="flex items-center gap-3">
+                <EmojiPicker value={emoji} onChange={setEmoji} />
+              </div>
 
               <div className="grid gap-4 lg:grid-cols-2">
                 <FormField label="Name (Key) *">

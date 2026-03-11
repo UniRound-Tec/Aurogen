@@ -1069,10 +1069,8 @@ function AddBrainModal({
                 </p>
               </div>
 
-              <div>
-                <FormField label="Emoji">
-                  <EmojiPicker value={emoji} onChange={setEmoji} />
-                </FormField>
+              <div className="flex items-center gap-3">
+                <EmojiPicker value={emoji} onChange={setEmoji} />
               </div>
 
               <div className="grid gap-4 lg:grid-cols-2">
