@@ -9,7 +9,7 @@ chcp 65001 >nul 2>&1
 ::  需要：Windows 10+（自带 curl 和 tar）
 :: ============================================================
 
-set "ROOT=%~dp0.."
+for %%I in ("%~dp0..") do set "ROOT=%%~fI"
 set "RUNTIME=%ROOT%\runtime"
 set "DOWNLOADS=%ROOT%\build\downloads"
 set "PYTHON_DIR=%RUNTIME%\python"
@@ -41,7 +41,7 @@ if exist "%DOWNLOADS%\%PY_FILENAME%" (
     curl -L --progress-bar "%PY_URL%" -o "%DOWNLOADS%\%PY_FILENAME%"
     if errorlevel 1 (
         echo [error] Python 下载失败
-        exit /b 1
+        goto :fail
     )
 )
 
@@ -55,7 +55,7 @@ tar -xzf "%DOWNLOADS%\%PY_FILENAME%" -C "%RUNTIME%"
 
 if not exist "%PYTHON_DIR%\python.exe" (
     echo [error] Python 解压异常，未找到 python.exe
-    exit /b 1
+    goto :fail
 )
 "%PYTHON_DIR%\python.exe" --version
 echo [build] Python 就绪
@@ -66,13 +66,13 @@ echo [build] ========== [2/5] 安装 Python 依赖 ==========
 "%PYTHON_DIR%\python.exe" -m pip install --upgrade pip -q
 if errorlevel 1 (
     echo [error] pip 升级失败
-    exit /b 1
+    goto :fail
 )
 
 "%PYTHON_DIR%\python.exe" -m pip install -r "%ROOT%\aurogen\requirements.txt" -q
 if errorlevel 1 (
     echo [error] Python 依赖安装失败
-    exit /b 1
+    goto :fail
 )
 echo [build] Python 依赖安装完成
 
@@ -86,7 +86,7 @@ if exist "%DOWNLOADS%\%NODE_FILENAME%" (
     curl -L --progress-bar "%NODE_URL%" -o "%DOWNLOADS%\%NODE_FILENAME%"
     if errorlevel 1 (
         echo [error] Node.js 下载失败
-        exit /b 1
+        goto :fail
     )
 )
 
@@ -105,6 +105,10 @@ tar -xf "%DOWNLOADS%\%NODE_FILENAME%" -C "%TMP_NODE%" 2>nul
 if errorlevel 1 (
     echo [build] tar 解压失败，尝试 PowerShell...
     powershell -NoProfile -Command "Expand-Archive -Path '%DOWNLOADS%\%NODE_FILENAME%' -DestinationPath '%TMP_NODE%' -Force"
+    if errorlevel 1 (
+        echo [error] Node.js 解压失败
+        goto :fail
+    )
 )
 
 :: 移动解压后的子目录到目标路径
@@ -115,7 +119,7 @@ rmdir /s /q "%TMP_NODE%" 2>nul
 
 if not exist "%NODE_DIR%\node.exe" (
     echo [error] Node.js 解压异常，未找到 node.exe
-    exit /b 1
+    goto :fail
 )
 "%NODE_DIR%\node.exe" --version
 echo [build] Node.js 就绪
@@ -128,8 +132,18 @@ set "PATH=%NODE_DIR%;%PATH%"
 pushd "%ROOT%\aurogen_web"
 echo [build] npm install...
 call npm install
+if errorlevel 1 (
+    popd
+    echo [error] npm install 失败
+    goto :fail
+)
 echo [build] npm run build...
 call npm run build
+if errorlevel 1 (
+    popd
+    echo [error] npm run build 失败
+    goto :fail
+)
 popd
 echo [build] 前端构建完成
 
@@ -218,6 +232,11 @@ if not exist "%DIST_DIR%" mkdir "%DIST_DIR%"
 
 pushd "%DIST_DIR%"
 powershell -NoProfile -Command "Compress-Archive -Path '%PACKAGE_NAME%' -DestinationPath '%PACKAGE_NAME%.zip' -Force"
+if errorlevel 1 (
+    popd
+    echo [error] zip 打包失败
+    goto :fail
+)
 popd
 
 rmdir /s /q "%PACKAGE_DIR%"
@@ -229,3 +248,14 @@ echo   产物: dist\%PACKAGE_NAME%.zip
 echo =====================================================
 
 endlocal
+exit /b 0
+
+:fail
+echo.
+echo =====================================================
+echo   构建失败，请检查上方日志
+echo =====================================================
+pause
+
+endlocal
+exit /b 1
