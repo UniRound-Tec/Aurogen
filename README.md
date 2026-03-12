@@ -51,7 +51,7 @@ Visit [docs.aurogen.site](https://docs.aurogen.site) for the full documentation.
 | Tools / Skills | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Sub-agents | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Web panel | ✅ | ✅ | ✖️ | ✖️ | ✖️ |
-| Multi-agent (non-subagent) | ✅ | ✖️ | ✖️ | ✖️ | ✖️ |
+| Multi-agent (with subagents) | ✅ | ✖️ | ✖️ | ✖️ | ✖️ |
 | Multi-instance per channel | ✅ | ✖️ | ✖️ | ✖️ | ✖️ |
 | BOOTSTRAP mechanism | ✅ | ✅ | ✖️ | ✖️ | ✖️ |
 | **Minimum hardware cost** | Linux SBC ~$50 | Mac Mini $599 | Linux SBC ~$50 | Linux Board $10 | Any hardware ~$10 |

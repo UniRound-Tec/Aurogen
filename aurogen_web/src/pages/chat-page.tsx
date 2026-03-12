@@ -633,6 +633,14 @@ export function ChatPage() {
   const [composerValue, setComposerValue] = useState('')
   const [searchValue, setSearchValue] = useState('')
   const [pendingDeleteSession, setPendingDeleteSession] = useState<SessionSummary | null>(null)
+  const submitComposer = useCallback(() => {
+    if (!composerValue.trim()) {
+      return
+    }
+
+    void sendMessage(composerValue)
+    setComposerValue('')
+  }, [composerValue, sendMessage])
   const streamState = activeRun?.status ?? lastRunState
   const isStreaming = activeRun?.status === 'connecting' || activeRun?.status === 'streaming'
   const conversationScrollRef = useRef<HTMLDivElement | null>(null)
@@ -876,11 +884,7 @@ export function ChatPage() {
               className="space-y-3"
               onSubmit={(event) => {
                 event.preventDefault()
-                if (!composerValue.trim()) {
-                  return
-                }
-                void sendMessage(composerValue)
-                setComposerValue('')
+                submitComposer()
               }}
             >
               <textarea
@@ -889,7 +893,13 @@ export function ChatPage() {
                 onChange={(event) => {
                   setComposerValue(event.target.value)
                 }}
-                  placeholder={t('chat.inputPlaceholder')}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && !event.shiftKey) {
+                    event.preventDefault()
+                    submitComposer()
+                  }
+                }}
+                placeholder={t('chat.inputPlaceholder')}
                 disabled={!currentSession || isStreaming}
                 className="w-full resize-none rounded-[var(--radius-md)] border border-[var(--color-border-subtle)] bg-[var(--color-bg-hover)] px-4 py-3 text-[13px] text-[var(--color-text-primary)] outline-none transition placeholder:text-[var(--color-text-tertiary)] focus:border-[var(--color-border-strong)] focus:shadow-[var(--shadow-focus)] disabled:cursor-not-allowed disabled:opacity-60"
               />

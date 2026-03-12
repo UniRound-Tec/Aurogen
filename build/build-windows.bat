@@ -29,7 +29,7 @@ set "NODE_URL=https://nodejs.org/dist/v%NODE_VERSION%/%NODE_FILENAME%"
 if not exist "%RUNTIME%" mkdir "%RUNTIME%"
 if not exist "%DOWNLOADS%" mkdir "%DOWNLOADS%"
 
-echo [build] ==== [1/5] Prepare Python runtime ====
+echo [build] ==== [1/7] Prepare Python runtime ====
 
 if exist "%DOWNLOADS%\%PY_FILENAME%" (
     echo [build] Using cached file: %PY_FILENAME%
@@ -61,7 +61,7 @@ if not exist "%PYTHON_DIR%\python.exe" (
 "%PYTHON_DIR%\python.exe" --version
 echo [build] Python ready
 
-echo [build] ==== [2/5] Install Python dependencies ====
+echo [build] ==== [2/7] Install Python dependencies ====
 "%PYTHON_DIR%\python.exe" -m pip install --upgrade pip -q
 if errorlevel 1 (
     echo [error] pip upgrade failed
@@ -75,7 +75,7 @@ if errorlevel 1 (
 )
 echo [build] Python dependencies installed
 
-echo [build] ==== [3/5] Prepare Node.js runtime ====
+echo [build] ==== [3/7] Prepare Node.js runtime ====
 
 if exist "%DOWNLOADS%\%NODE_FILENAME%" (
     echo [build] Using cached file: %NODE_FILENAME%
@@ -124,10 +124,31 @@ if not exist "%NODE_DIR%\npm.cmd" (
 "%NODE_DIR%\node.exe" --version
 echo [build] Node.js ready
 
-echo [build] ==== [4/5] Build frontend ====
+echo [build] ==== [4/7] Build WhatsApp Bridge ====
 set "PATH=%NODE_DIR%;%PATH%"
 set "NPM_CMD=%NODE_DIR%\npm.cmd"
 set "npm_config_script_shell=%ComSpec%"
+
+pushd "%ROOT%\aurogen\channels\bridge"
+echo [build] npm install (bridge)...
+call "%NPM_CMD%" install
+if errorlevel 1 (
+    popd
+    echo [error] Bridge npm install failed
+    goto :fail
+)
+
+echo [build] npm run build (bridge)...
+call "%NPM_CMD%" run build
+if errorlevel 1 (
+    popd
+    echo [error] Bridge build failed
+    goto :fail
+)
+popd
+echo [build] WhatsApp Bridge build complete
+
+echo [build] ==== [5/7] Build frontend ====
 
 pushd "%ROOT%\aurogen_web"
 echo [build] npm install...
@@ -148,7 +169,7 @@ if errorlevel 1 (
 popd
 echo [build] Frontend build complete
 
-echo [build] ==== [5/5] Assemble package ====
+echo [build] ==== [6/7] Assemble package ====
 
 for /f "tokens=2 delims=:" %%A in ('findstr /c:"\"version\"" "%ROOT%\aurogen_web\package.json"') do (
     set "RAW_VER=%%A"
@@ -189,6 +210,10 @@ if errorlevel 1 (
     echo [error] Frontend dist copy failed
     goto :fail
 )
+
+REM Clean bridge dev artifacts
+if exist "%PACKAGE_DIR%\aurogen\channels\bridge\src" rmdir /s /q "%PACKAGE_DIR%\aurogen\channels\bridge\src"
+del /q "%PACKAGE_DIR%\aurogen\channels\bridge\tsconfig.json" 2>nul
 
 for /d /r "%PACKAGE_DIR%\aurogen" %%D in (__pycache__) do (
     if exist "%%D" rmdir /s /q "%%D"

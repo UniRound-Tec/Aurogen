@@ -3,6 +3,7 @@ import {
   AlertCircle,
   LoaderCircle,
   Plus,
+  QrCode,
   RefreshCw,
   Search,
   Shield,
@@ -10,6 +11,7 @@ import {
 } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useTranslation } from 'react-i18next'
+import { QRCodeSVG } from 'qrcode.react'
 import { fetchJson } from '@/lib/api'
 import { ThemedSelect } from '@/components/themed-select'
 import { cn } from '@/lib/utils'
@@ -475,6 +477,80 @@ export function ChannelsPage() {
   )
 }
 
+function WhatsAppQrSection({ channelKey }: { channelKey: string }) {
+  const [qr, setQr] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [polling, setPolling] = useState(false)
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const fetchQr = useCallback(async () => {
+    try {
+      const res = await fetchJson<{ qr: string | null }>(`/channels/${encodeURIComponent(channelKey)}/qr`)
+      setQr(res.qr)
+      return res.qr
+    } catch {
+      setQr(null)
+      return null
+    }
+  }, [channelKey])
+
+  const startPolling = useCallback(async () => {
+    setLoading(true)
+    const result = await fetchQr()
+    setLoading(false)
+    setPolling(true)
+    if (result) return
+    intervalRef.current = setInterval(() => { void fetchQr() }, 3000)
+  }, [fetchQr])
+
+  useEffect(() => {
+    if (polling && qr && intervalRef.current) {
+      clearInterval(intervalRef.current)
+      intervalRef.current = null
+    }
+  }, [polling, qr])
+
+  useEffect(() => {
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current)
+    }
+  }, [])
+
+  if (!polling) {
+    return (
+      <button
+        type="button"
+        onClick={() => { void startPolling() }}
+        disabled={loading}
+        className="inline-flex items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--color-border-subtle)] bg-[var(--color-accent-soft)] px-3.5 py-1.5 text-[12px] font-medium text-[var(--color-text-primary)] transition hover:border-[var(--color-border-strong)] hover:bg-[var(--color-accent-hover)]"
+      >
+        {loading ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <QrCode className="h-3.5 w-3.5" />}
+        Show QR Code
+      </button>
+    )
+  }
+
+  return (
+    <div className="flex flex-col items-center gap-3 rounded-[var(--radius-md)] border border-[var(--color-border-subtle)] bg-[var(--color-bg-hover)]/50 p-5">
+      {qr ? (
+        <>
+          <div className="rounded-lg bg-white p-3">
+            <QRCodeSVG value={qr} size={200} />
+          </div>
+          <p className="text-[12px] text-[var(--color-text-secondary)]">
+            Open WhatsApp → Linked Devices → Scan
+          </p>
+        </>
+      ) : (
+        <div className="flex items-center gap-2 py-8 text-[13px] text-[var(--color-text-tertiary)]">
+          <LoaderCircle className="h-4 w-4 animate-spin" />
+          Waiting for QR code...
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ChannelDetail({
   channel,
   onEdit,
@@ -486,6 +562,7 @@ function ChannelDetail({
 }) {
   const { t } = useTranslation()
   const settingsEntries = Object.entries(channel.settings)
+  const isWhatsApp = channel.type === 'whatsapp'
 
   return (
     <motion.div
@@ -495,6 +572,9 @@ function ChannelDetail({
       transition={{ duration: 0.25 }}
     >
       <div className="mb-5 flex items-center justify-end gap-2">
+        {isWhatsApp && !channel.running ? (
+          <WhatsAppQrSection channelKey={channel.key} />
+        ) : null}
         <button
           type="button"
           onClick={onEdit}
@@ -512,6 +592,12 @@ function ChannelDetail({
           </button>
         ) : null}
       </div>
+
+      {isWhatsApp && channel.running ? (
+        <div className="mb-4">
+          <WhatsAppQrSection channelKey={channel.key} />
+        </div>
+      ) : null}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <DetailField label="Key" value={channel.key} />

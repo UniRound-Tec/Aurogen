@@ -60,7 +60,7 @@ download() {
 }
 
 # ── Step 1: Python ──────────────────────────────────────────
-info "========== [1/5] 准备 Python 运行时 =========="
+info "========== [1/7] 准备 Python 运行时 =========="
 download "$PY_URL" "$DOWNLOADS/$PY_FILENAME"
 
 if [[ -d "$PYTHON_DIR" ]]; then
@@ -76,13 +76,13 @@ tar -xzf "$DOWNLOADS/$PY_FILENAME" -C "$RUNTIME"
 info "Python 就绪: $($PYTHON_DIR/bin/python3 --version)"
 
 # ── Step 2: pip install ─────────────────────────────────────
-info "========== [2/5] 安装 Python 依赖 =========="
+info "========== [2/7] 安装 Python 依赖 =========="
 "$PYTHON_DIR/bin/pip3" install --upgrade pip -q
 "$PYTHON_DIR/bin/pip3" install -r "$ROOT/aurogen/requirements.txt" -q
 info "Python 依赖安装完成"
 
 # ── Step 3: Node.js ─────────────────────────────────────────
-info "========== [3/5] 准备 Node.js 运行时 =========="
+info "========== [3/7] 准备 Node.js 运行时 =========="
 download "$NODE_URL" "$DOWNLOADS/$NODE_FILENAME"
 
 if [[ -d "$NODE_DIR" ]]; then
@@ -102,9 +102,19 @@ rm -rf "$TMP_NODE"
 [[ -f "$NODE_DIR/bin/node" ]] || error "Node.js 解压异常，未找到 $NODE_DIR/bin/node"
 info "Node.js 就绪: $($NODE_DIR/bin/node --version)"
 
-# ── Step 4: 构建前端 ────────────────────────────────────────
-info "========== [4/5] 构建前端 (aurogen_web) =========="
+# ── Step 4: 构建 WhatsApp Bridge ───────────────────────────
+info "========== [4/7] 构建 WhatsApp Bridge =========="
 export PATH="$NODE_DIR/bin:$PATH"
+
+cd "$ROOT/aurogen/channels/bridge"
+info "npm install (bridge)..."
+npm install
+info "npm run build (bridge)..."
+npm run build
+info "WhatsApp Bridge 构建完成"
+
+# ── Step 5: 构建前端 ────────────────────────────────────────
+info "========== [5/7] 构建前端 (aurogen_web) =========="
 
 cd "$ROOT/aurogen_web"
 info "npm install..."
@@ -113,8 +123,8 @@ info "npm run build..."
 npm run build
 info "前端构建完成"
 
-# ── Step 5: 组装发行包 ──────────────────────────────────────
-info "========== [5/5] 组装发行包 =========="
+# ── Step 6: 组装发行包 ──────────────────────────────────────
+info "========== [6/7] 组装发行包 =========="
 
 APP_VERSION=$(grep '"version"' "$ROOT/aurogen_web/package.json" \
     | sed 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
@@ -143,6 +153,10 @@ rm -f "$PACKAGE_DIR/aurogen/.workspace/cron/jobs.json"
 # 复制前端构建产物
 mkdir -p "$PACKAGE_DIR/aurogen_web"
 cp -r "$ROOT/aurogen_web/dist" "$PACKAGE_DIR/aurogen_web/dist"
+
+# 清理 bridge 开发文件
+rm -rf "$PACKAGE_DIR/aurogen/channels/bridge/src"
+rm -f "$PACKAGE_DIR/aurogen/channels/bridge/tsconfig.json"
 
 # 清理缓存和日志
 find "$PACKAGE_DIR/aurogen" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
