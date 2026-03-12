@@ -1397,8 +1397,10 @@ async def reload_channels():
     Compare config with running channels, incremental update:
     - new in config → start()
     - removed from config → stop()
-    - in both → unchanged (no restart to avoid disconnect)
+        - changed in config → restart()
+        - unchanged → keep running
     """
+    config_manager.reload()
     result = await get_channel_manager().reload()
     return result
 

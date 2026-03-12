@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Optional
 
@@ -104,6 +105,7 @@ class ChannelManager:
 
     def __init__(self):
         self._channels: dict[str, BaseChannel] = {}
+        self._channel_configs: dict[str, dict] = {}
         # Tracks asyncio Task per channel (for channels with background loops)
         self._tasks: dict[str, asyncio.Task] = {}
 
@@ -156,9 +158,12 @@ class ChannelManager:
         try:
             channel = info.cls(channel_key=key, settings=settings)
             self._channels[key] = channel
+            self._channel_configs[key] = json.loads(json.dumps(cfg, sort_keys=True))
             await channel.start()
             logger.info("[ChannelManager] channel '{}' started", key)
         except Exception as e:
+            self._channels.pop(key, None)
+            self._channel_configs.pop(key, None)
             logger.error("[ChannelManager] Failed to start channel '{}': {}", key, e)
 
     # ── Dynamic reload ────────────────────────────────────────────────────────
@@ -168,7 +173,8 @@ class ChannelManager:
         Compare running channels with latest config and update incrementally:
         - Added channels → start()
         - Removed channels → stop()
-        - Existing channels → unchanged (avoid disconnects)
+        - Changed channels → restart()
+        - Existing unchanged channels → keep running
 
         Returns a change summary dict.
         """
@@ -181,10 +187,25 @@ class ChannelManager:
 
         added = config_keys - running_keys
         removed = running_keys - config_keys
-        unchanged = running_keys & config_keys
+        shared = running_keys & config_keys
+        changed = {
+            key for key in shared
+            if self._channel_configs.get(key) != json.loads(json.dumps(channels_cfg[key], sort_keys=True))
+        }
+        unchanged = shared - changed
 
         for key in removed:
             await self._stop_channel(key)
+
+        for key in changed:
+            cfg = channels_cfg[key]
+            channel_type = cfg.get("type", key)
+            info = registry.get(channel_type)
+            if info is None:
+                logger.warning("[ChannelManager] Unknown channel type: {}, skipping", channel_type)
+                continue
+            await self._stop_channel(key)
+            await self._start_channel(key, info, cfg)
 
         for key in added:
             cfg = channels_cfg[key]
@@ -198,12 +219,14 @@ class ChannelManager:
         return {
             "added": list(added),
             "removed": list(removed),
+            "changed": list(changed),
             "unchanged": list(unchanged),
         }
 
     async def _stop_channel(self, key: str) -> None:
         """Stop and unregister a channel."""
         channel = self._channels.pop(key, None)
+        self._channel_configs.pop(key, None)
         if channel:
             try:
                 await channel.stop()
