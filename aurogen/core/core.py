@@ -64,14 +64,20 @@ class AgentLoop:
     async def _handle_cron_job(self, job: CronJob) -> str | None:
         """Cron 任务回调：将消息注入入站队列，由 agent 正常处理并回复。"""
         payload = job.payload
-        if not payload.channel or not payload.to:
-            print(f"[Cron] 任务 '{job.name}' 缺少 channel/to，跳过投递")
-            return None
+        if payload.deliver:
+            if not payload.channel or not payload.to:
+                raise ValueError("deliver cron job requires both channel and to")
+            session_id = f"{payload.channel}@{payload.to}"
+            agent_name = config_manager.get(f"channels.{payload.channel}.agent_name")
+        else:
+            # Silent cron jobs still need a valid session so the agent can run normally.
+            session_id = f"web@cron:{job.id}"
+            agent_name = config_manager.get("channels.web.agent_name", "main")
 
-        session_id = f"{payload.channel}@{payload.to}"
         msg = InboundMessage(
             session_id=session_id,
             content=payload.message,
+            agent_name=agent_name,
             metadata={"source": "cron", "job_id": job.id},
         )
         await get_inbound_queue().put(msg)
@@ -236,6 +242,8 @@ class AgentLoop:
                         "content": response.content or "",
                         "tool_calls": response.tool_calls,
                     }
+                    if response.thinking:
+                        asst_dict["reasoning_content"] = response.thinking
                     # 多轮 thinking：将 reasoning_details 带回，供下一轮使用
                     if response.reasoning_details:
                         asst_dict["reasoning_details"] = response.reasoning_details

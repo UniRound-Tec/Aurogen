@@ -100,11 +100,16 @@ class SubagentManager:
                 )
 
                 if response.tool_calls:
-                    messages.append({
+                    asst_msg = {
                         "role": "assistant",
                         "content": response.content or "",
                         "tool_calls": response.tool_calls,
-                    })
+                    }
+                    if response.thinking:
+                        asst_msg["reasoning_content"] = response.thinking
+                    if response.reasoning_details:
+                        asst_msg["reasoning_details"] = response.reasoning_details
+                    messages.append(asst_msg)
 
                     for tc in response.tool_calls:
                         tool_name = tc["function"]["name"]

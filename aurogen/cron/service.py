@@ -60,6 +60,12 @@ def _validate_schedule_for_add(schedule: CronSchedule) -> None:
             raise ValueError(f"unknown timezone '{schedule.tz}'") from None
 
 
+def _validate_delivery(deliver: bool, channel: str | None, to: str | None) -> None:
+    """Validate delivery-related fields."""
+    if deliver and (not channel or not to):
+        raise ValueError("channel and to are required when deliver is enabled")
+
+
 class CronService:
     """Service for managing and executing scheduled jobs."""
 
@@ -296,6 +302,7 @@ class CronService:
         """Add a new job."""
         store = self._load_store()
         _validate_schedule_for_add(schedule)
+        _validate_delivery(deliver, channel, to)
         now = _now_ms()
 
         job = CronJob(
@@ -384,6 +391,11 @@ class CronService:
             if job.id != job_id:
                 continue
 
+            effective_deliver = deliver if deliver is not None else job.payload.deliver
+            effective_channel = channel if channel is not None else job.payload.channel
+            effective_to = to if to is not None else job.payload.to
+            _validate_delivery(effective_deliver, effective_channel, effective_to)
+
             if name is not None:
                 job.name = name
             if enabled is not None:
@@ -419,8 +431,12 @@ class CronService:
     def status(self) -> dict:
         """Get service status."""
         store = self._load_store()
+        enabled_jobs = [j for j in store.jobs if j.enabled]
         return {
+            "running": self._running,
             "enabled": self._running,
+            "jobs_total": len(store.jobs),
+            "jobs_enabled": len(enabled_jobs),
             "jobs": len(store.jobs),
             "next_wake_at_ms": self._get_next_wake_ms(),
         }

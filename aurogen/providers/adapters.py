@@ -1,6 +1,7 @@
 from typing import Any
 
 from openai import OpenAI
+from loguru import logger
 
 from providers.base import AdapterResponse, BaseProviderAdapter
 
@@ -59,6 +60,32 @@ def _parse_openai_message(message: Any) -> tuple[str, str | None, Any]:
     return content, None, reasoning_details
 
 
+def _should_retry_without_reasoning_effort(exc: Exception) -> bool:
+    """Return True when the upstream rejects reasoning_effort/reasoningEffort."""
+    text = str(exc).lower()
+    return (
+        ("reasoning_effort" in text or "reasoningeffort" in text)
+        and ("does not support" in text or "unsupported" in text or "invalid" in text)
+    )
+
+
+def _create_with_reasoning_fallback(client: OpenAI, kwargs: dict[str, Any]) -> Any:
+    """Retry once without reasoning_effort when an upstream model rejects it."""
+    try:
+        return client.chat.completions.create(**kwargs)
+    except Exception as exc:
+        if "reasoning_effort" not in kwargs or not _should_retry_without_reasoning_effort(exc):
+            raise
+
+        retry_kwargs = dict(kwargs)
+        retry_kwargs.pop("reasoning_effort", None)
+        logger.warning(
+            "Provider rejected reasoning_effort for model '{}', retrying without it",
+            kwargs.get("model", ""),
+        )
+        return client.chat.completions.create(**retry_kwargs)
+
+
 class OpenAICustomAdapter(BaseProviderAdapter):
     """OpenAI 兼容 API（适用于代理地址，如 aihubmix）"""
 
@@ -80,7 +107,7 @@ class OpenAICustomAdapter(BaseProviderAdapter):
         if thinking != "none":
             kwargs["reasoning_effort"] = thinking
 
-        raw = client.chat.completions.create(**kwargs)
+        raw = _create_with_reasoning_fallback(client, kwargs)
         message = raw.choices[0].message
 
         content, thinking, reasoning_details = _parse_openai_message(message)
@@ -114,7 +141,7 @@ class OpenAIOfficialAdapter(BaseProviderAdapter):
         if thinking != "none":
             kwargs["reasoning_effort"] = thinking
 
-        raw = client.chat.completions.create(**kwargs)
+        raw = _create_with_reasoning_fallback(client, kwargs)
         message = raw.choices[0].message
         raw_content = getattr(message, "content", None)
 
