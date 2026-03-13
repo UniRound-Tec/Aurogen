@@ -40,6 +40,9 @@ python-telegram-bot
 # Optional: Model Context Protocol (MCP) tool integration
 mcp>=1.26.0
 
+# Cron scheduling
+croniter
+
 # Web content extraction
 lxml_html_clean
 curl_cffi
