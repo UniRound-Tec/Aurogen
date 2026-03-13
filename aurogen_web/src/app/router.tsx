@@ -1,5 +1,6 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom'
 import { AppShell } from '@/app/app-shell'
+import { AgentGroupsPage } from '@/pages/agent-groups-page'
 import { ChatPage } from '@/pages/chat-page'
 import { McpPage } from '@/pages/mcp-page'
 import {
@@ -26,6 +27,10 @@ export const router = createBrowserRouter([
       {
         path: '/chat',
         element: <ChatPage />,
+      },
+      {
+        path: '/groups',
+        element: <AgentGroupsPage />,
       },
       {
         path: '/brains',

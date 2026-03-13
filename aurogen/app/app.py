@@ -6,11 +6,15 @@ from uuid import uuid4
 
 from app.schema import (
     AddAgentRequest,
+    AgentGroupEventsResponse,
+    AgentGroupRunInfo,
+    AppendAgentGroupMessageRequest,
     AddChannelRequest,
     AddCronJobRequest,
     AddMCPServerRequest,
     AddProviderRequest,
     CheckAuthRequest,
+    CreateAgentGroupRunRequest,
     CreateChatSessionRequest,
     SendMessageRequest,
     SessionInfo,
@@ -40,12 +44,14 @@ from message.queue_manager import get_inbound_queue
 from message.events import EventType, InboundMessage
 from message.session_manager import Session
 from core.core import AgentLoop
+from core.group.runtime import AgentGroupManager
 from core.skills import SkillsLoader, get_skills_loader, resolve_skills_dir
 from providers.providers import Provider, _build_provider_registry
 from core.heartbeat import HeartbeatManager
 
 agent_loop: AgentLoop | None = None
 heartbeat_manager: HeartbeatManager | None = None
+group_manager: AgentGroupManager | None = None
 
 DEFAULT_HEARTBEAT_CONFIG = HeartbeatConfig().model_dump()
 
@@ -97,7 +103,7 @@ def _heartbeat_session_id(agent_name: str) -> str:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """FastAPI lifespan: start and shutdown agent loop and all channels."""
-    global agent_loop, heartbeat_manager
+    global agent_loop, heartbeat_manager, group_manager
 
     _ensure_main_agent()
     for agent_name in config_manager.get("agents", {}):
@@ -109,6 +115,7 @@ async def lifespan(app: FastAPI):
 
     provider = Provider()
     agent_loop = AgentLoop(provider, workspace=WORKSPACE_DIR)
+    group_manager = AgentGroupManager(WORKSPACE_DIR, provider, agent_loop)
 
     def _on_execute_factory(agent_name: str):
         async def _on_execute(tasks: str) -> str:
@@ -142,6 +149,8 @@ async def lifespan(app: FastAPI):
     yield  # Application running
 
     agent_loop.stop()
+    if group_manager:
+        await group_manager.stop_all()
     heartbeat_manager.stop_all()
     await channel_manager.stop_all()
     task.cancel()
@@ -699,6 +708,12 @@ def _count_total_sessions() -> int:
     for sessions_dir in agents_dir.glob("*/sessions"):
         total += len(list(sessions_dir.glob("*.json")))
     return total
+
+
+def _get_group_manager() -> AgentGroupManager:
+    if group_manager is None:
+        raise HTTPException(status_code=503, detail="AgentGroup manager not started")
+    return group_manager
 
 
 def _get_session_file(channel: str, session_id: str) -> tuple[str, Path]:
@@ -1634,6 +1649,58 @@ async def chat(request: SendMessageRequest):
             "Connection": "keep-alive",
         }
     )
+
+
+@app.post("/agent-groups/runs", response_model=AgentGroupRunInfo)
+async def create_agent_group_run(request: CreateAgentGroupRunRequest):
+    try:
+        run = await _get_group_manager().start_run(
+            members=request.members,
+            instruction=request.instruction,
+            title=request.title,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return run
+
+
+@app.get("/agent-groups/runs")
+async def list_agent_group_runs():
+    return {"runs": _get_group_manager().list_runs()}
+
+
+@app.get("/agent-groups/runs/{run_id}", response_model=AgentGroupRunInfo)
+async def get_agent_group_run(run_id: str):
+    try:
+        return _get_group_manager().get_run(run_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/agent-groups/runs/{run_id}/events", response_model=AgentGroupEventsResponse)
+async def get_agent_group_run_events(run_id: str, after_seq: int = 0):
+    try:
+        return _get_group_manager().get_events(run_id, after_seq=after_seq)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/agent-groups/runs/{run_id}/stop", response_model=AgentGroupRunInfo)
+async def stop_agent_group_run(run_id: str):
+    try:
+        return await _get_group_manager().stop_run(run_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/agent-groups/runs/{run_id}/messages", response_model=AgentGroupRunInfo)
+async def append_agent_group_message(run_id: str, request: AppendAgentGroupMessageRequest):
+    try:
+        return _get_group_manager().append_user_message(run_id, request.message)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 # Mount frontend static files (only when dist exists; does not affect local dev)

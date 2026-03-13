@@ -66,13 +66,12 @@ def _build_provider_registry() -> dict[str, ProviderTypeInfo]:
 class Provider:
     """LLM Provider 路由：根据 agent 配置选择对应 adapter 发起请求。"""
 
-    def response(
+    def _response_with_provider_key(
         self,
+        provider_key: str,
         messages: list[dict],
         tools: list[dict] | None = None,
-        agent_name: str = "main",
     ) -> Any:
-        provider_key = config_manager.get(f"agents.{agent_name}.provider", "openai")
         provider_cfg = config_manager.get(f"providers.{provider_key}", {})
         model = provider_cfg.get("model", "gpt-4o")
         thinking = provider_cfg.get("thinking", "none")
@@ -86,3 +85,20 @@ class Provider:
         settings = provider_cfg.get("settings", {})
         adapter = info.cls(**settings)
         return adapter.response(model, messages, tools, thinking=thinking)
+
+    def response(
+        self,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+        agent_name: str = "main",
+    ) -> Any:
+        provider_key = config_manager.get(f"agents.{agent_name}.provider", "openai")
+        return self._response_with_provider_key(provider_key, messages, tools)
+
+    def response_for_provider(
+        self,
+        provider_key: str,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+    ) -> Any:
+        return self._response_with_provider_key(provider_key, messages, tools)

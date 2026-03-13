@@ -87,6 +87,40 @@ class CreateChatSessionRequest(BaseModel):
     chat_id: Optional[str] = None
 
 
+class CreateAgentGroupRunRequest(BaseModel):
+    members: list[str] = Field(default_factory=list)
+    instruction: str
+    title: Optional[str] = None
+
+
+class AppendAgentGroupMessageRequest(BaseModel):
+    message: str
+
+
+class AgentGroupRunInfo(BaseModel):
+    run_id: str
+    title: str
+    status: str
+    instruction: str
+    leader_provider: str
+    members: list[str] = Field(default_factory=list)
+    member_descriptions: dict[str, str] = Field(default_factory=dict)
+    agent_cursors: dict[str, int] = Field(default_factory=dict)
+    next_seq: int = 1
+    created_at: str = ""
+    updated_at: str = ""
+    finished_at: Optional[str] = None
+    final_message: Optional[str] = None
+    error_message: Optional[str] = None
+
+
+class AgentGroupEventsResponse(BaseModel):
+    run_id: str
+    status: str
+    next_seq: int
+    events: list[dict[str, Any]] = Field(default_factory=list)
+
+
 class CheckAuthRequest(BaseModel):
     password: str
 

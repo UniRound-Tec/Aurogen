@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   AlertCircle,
+  BrainCircuit,
   Eye,
   EyeOff,
   KeyRound,
@@ -24,9 +25,20 @@ type HeartbeatConfig = {
   enabled: boolean
 }
 
+type RuntimeLimitsConfig = {
+  agent_loop_max_iterations: number
+  group_max_turns: number
+}
+
 type AgentOption = {
   key: string
   name: string
+}
+
+type ProviderOption = {
+  key: string
+  description: string
+  model: string
 }
 
 async function fetchHeartbeatConfig(agentName: string) {
@@ -38,10 +50,39 @@ async function fetchAgentOptions() {
   return res.agents.map((a) => ({ key: a.key, name: a.name }))
 }
 
+async function fetchProviderOptions() {
+  const res = await fetchJson<{ providers: { key: string; description: string; model: string }[] }>('/providers/config')
+  return res.providers.map((provider) => ({
+    key: provider.key,
+    description: provider.description,
+    model: provider.model,
+  }))
+}
+
+async function fetchLeaderProvider() {
+  const res = await fetchJson<{ config: { leader_agent?: { provider?: string } } }>('/get-config')
+  return res.config?.leader_agent?.provider ?? ''
+}
+
+async function fetchRuntimeLimits() {
+  const res = await fetchJson<{ config: { runtime?: Partial<RuntimeLimitsConfig> } }>('/get-config')
+  return {
+    agent_loop_max_iterations: res.config?.runtime?.agent_loop_max_iterations ?? 40,
+    group_max_turns: res.config?.runtime?.group_max_turns ?? 12,
+  }
+}
+
 async function updateHeartbeat(agentName: string, data: { interval_s?: number; enabled?: boolean }) {
   return fetchJson<{ message: string }>(`/heartbeat/config?agent_name=${encodeURIComponent(agentName)}`, {
     method: 'PATCH',
     body: JSON.stringify(data),
+  })
+}
+
+async function updateLeaderProvider(providerKey: string) {
+  return fetchJson<{ message: string }>('/set-config', {
+    method: 'POST',
+    body: JSON.stringify({ path: 'leader_agent.provider', value: providerKey }),
   })
 }
 
@@ -52,10 +93,26 @@ async function changePassword(newPassword: string) {
   })
 }
 
+async function updateRuntimeLimits(data: RuntimeLimitsConfig) {
+  await Promise.all([
+    fetchJson<{ message: string }>('/set-config', {
+      method: 'POST',
+      body: JSON.stringify({ path: 'runtime.agent_loop_max_iterations', value: data.agent_loop_max_iterations }),
+    }),
+    fetchJson<{ message: string }>('/set-config', {
+      method: 'POST',
+      body: JSON.stringify({ path: 'runtime.group_max_turns', value: data.group_max_turns }),
+    }),
+  ])
+}
+
 function useSettingsController() {
   const [heartbeat, setHeartbeat] = useState<HeartbeatConfig | null>(null)
+  const [runtimeLimits, setRuntimeLimits] = useState<RuntimeLimitsConfig | null>(null)
   const [agents, setAgents] = useState<AgentOption[]>([])
+  const [providers, setProviders] = useState<ProviderOption[]>([])
   const [selectedHeartbeatAgent, setSelectedHeartbeatAgent] = useState('')
+  const [leaderProvider, setLeaderProvider] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [savingSection, setSavingSection] = useState<string | null>(null)
@@ -63,13 +120,21 @@ function useSettingsController() {
 
   const reload = useCallback(async (preferredAgent?: string) => {
     try {
-      const ag = await fetchAgentOptions()
+      const [ag, providerOptions, nextLeaderProvider] = await Promise.all([
+        fetchAgentOptions(),
+        fetchProviderOptions(),
+        fetchLeaderProvider(),
+      ])
+      const nextRuntimeLimits = await fetchRuntimeLimits()
       const nextAgent =
         preferredAgent
         || ag.find((agent) => agent.key === 'main')?.key
         || ag[0]?.key
         || ''
       setAgents(ag)
+      setProviders(providerOptions)
+      setLeaderProvider(nextLeaderProvider)
+      setRuntimeLimits(nextRuntimeLimits)
       setSelectedHeartbeatAgent(nextAgent)
       if (nextAgent) {
         const hb = await fetchHeartbeatConfig(nextAgent)
@@ -142,9 +207,42 @@ function useSettingsController() {
     }
   }, [showSuccess])
 
+  const handleUpdateLeaderProvider = useCallback(async (providerKey: string, tFn: (k: string) => string) => {
+    setSavingSection('leader')
+    setError(null)
+    try {
+      await updateLeaderProvider(providerKey)
+      await reload(selectedHeartbeatAgent || undefined)
+      showSuccess(tFn('settings.leaderProviderSaved'))
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : tFn('common.loadFailed')
+      setError(msg)
+    } finally {
+      setSavingSection(null)
+    }
+  }, [reload, selectedHeartbeatAgent, showSuccess])
+
+  const handleUpdateRuntimeLimits = useCallback(async (data: RuntimeLimitsConfig, tFn: (k: string) => string) => {
+    setSavingSection('runtime')
+    setError(null)
+    try {
+      await updateRuntimeLimits(data)
+      await reload(selectedHeartbeatAgent || undefined)
+      showSuccess(tFn('settings.runtimeSaved'))
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : tFn('common.loadFailed')
+      setError(msg)
+    } finally {
+      setSavingSection(null)
+    }
+  }, [reload, selectedHeartbeatAgent, showSuccess])
+
   return {
     heartbeat,
+    runtimeLimits,
     agents,
+    providers,
+    leaderProvider,
     selectedHeartbeatAgent,
     loading,
     error,
@@ -154,6 +252,8 @@ function useSettingsController() {
     handleSelectHeartbeatAgent,
     handleUpdateHeartbeat,
     handleChangePassword,
+    handleUpdateLeaderProvider,
+    handleUpdateRuntimeLimits,
   }
 }
 
@@ -161,7 +261,10 @@ export function SettingsPage() {
   const { t } = useTranslation()
   const {
     heartbeat,
+    runtimeLimits,
     agents,
+    providers,
+    leaderProvider,
     selectedHeartbeatAgent,
     loading,
     error,
@@ -171,6 +274,8 @@ export function SettingsPage() {
     handleSelectHeartbeatAgent,
     handleUpdateHeartbeat,
     handleChangePassword,
+    handleUpdateLeaderProvider,
+    handleUpdateRuntimeLimits,
   } = useSettingsController()
 
   return (
@@ -209,6 +314,17 @@ export function SettingsPage() {
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
           <AppearanceCard />
+          <LeaderProviderCard
+            providers={providers}
+            value={leaderProvider}
+            saving={savingSection === 'leader'}
+            onSave={(providerKey) => handleUpdateLeaderProvider(providerKey, t)}
+          />
+          <RuntimeLimitsCard
+            config={runtimeLimits}
+            saving={savingSection === 'runtime'}
+            onSave={(data) => handleUpdateRuntimeLimits(data, t)}
+          />
           <HeartbeatCard
             config={heartbeat}
             agents={agents}
@@ -224,6 +340,162 @@ export function SettingsPage() {
         </div>
       )}
     </section>
+  )
+}
+
+function RuntimeLimitsCard({
+  config,
+  saving,
+  onSave,
+}: {
+  config: RuntimeLimitsConfig | null
+  saving: boolean
+  onSave: (data: RuntimeLimitsConfig) => Promise<void>
+}) {
+  const { t } = useTranslation()
+  const [agentLoopIterations, setAgentLoopIterations] = useState('')
+  const [groupMaxTurns, setGroupMaxTurns] = useState('')
+
+  useEffect(() => {
+    if (!config) {
+      return
+    }
+    setAgentLoopIterations(String(config.agent_loop_max_iterations))
+    setGroupMaxTurns(String(config.group_max_turns))
+  }, [config])
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!config) {
+      return
+    }
+    const nextAgentLoopIterations = parseInt(agentLoopIterations, 10)
+    const nextGroupMaxTurns = parseInt(groupMaxTurns, 10)
+    if (!Number.isFinite(nextAgentLoopIterations) || nextAgentLoopIterations <= 0) {
+      return
+    }
+    if (!Number.isFinite(nextGroupMaxTurns) || nextGroupMaxTurns <= 0) {
+      return
+    }
+    if (
+      nextAgentLoopIterations === config.agent_loop_max_iterations
+      && nextGroupMaxTurns === config.group_max_turns
+    ) {
+      return
+    }
+    await onSave({
+      agent_loop_max_iterations: nextAgentLoopIterations,
+      group_max_turns: nextGroupMaxTurns,
+    })
+  }
+
+  return (
+    <motion.form
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25, delay: 0 }}
+      onSubmit={(e) => { void handleSubmit(e) }}
+      className="panel-surface flex flex-col gap-5 p-5"
+    >
+      <div className="flex items-center gap-3">
+        <div className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--color-border-subtle)] bg-[var(--color-bg-hover)]/60">
+          <BrainCircuit className="h-4 w-4 text-[var(--color-accent)]" />
+        </div>
+        <div>
+          <h3 className="text-[13px] font-semibold text-[var(--color-text-primary)]">{t('settings.runtimeTitle')}</h3>
+          <p className="text-[11px] tertiary-text">{t('settings.runtimeDesc')}</p>
+        </div>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <FormField label={t('settings.agentLoopIterationsLabel')}>
+          <input
+            type="number"
+            min={1}
+            value={agentLoopIterations}
+            onChange={(e) => setAgentLoopIterations(e.target.value)}
+            className="w-full rounded-[var(--radius-sm)] border border-[var(--color-border-subtle)] bg-[var(--color-bg-hover)] px-4 py-2 text-[13px] text-[var(--color-text-primary)] outline-none transition placeholder:text-[var(--color-text-tertiary)] focus:border-[var(--color-border-strong)] focus:shadow-[var(--shadow-focus)]"
+          />
+        </FormField>
+        <FormField label={t('settings.groupMaxTurnsLabel')}>
+          <input
+            type="number"
+            min={1}
+            value={groupMaxTurns}
+            onChange={(e) => setGroupMaxTurns(e.target.value)}
+            className="w-full rounded-[var(--radius-sm)] border border-[var(--color-border-subtle)] bg-[var(--color-bg-hover)] px-4 py-2 text-[13px] text-[var(--color-text-primary)] outline-none transition placeholder:text-[var(--color-text-tertiary)] focus:border-[var(--color-border-strong)] focus:shadow-[var(--shadow-focus)]"
+          />
+        </FormField>
+      </div>
+
+      <div className="flex justify-end">
+        <SaveButton saving={saving} />
+      </div>
+    </motion.form>
+  )
+}
+
+function LeaderProviderCard({
+  providers,
+  value,
+  saving,
+  onSave,
+}: {
+  providers: ProviderOption[]
+  value: string
+  saving: boolean
+  onSave: (providerKey: string) => Promise<void>
+}) {
+  const { t } = useTranslation()
+  const [selectedProvider, setSelectedProvider] = useState(value)
+
+  useEffect(() => {
+    setSelectedProvider(value)
+  }, [value])
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!selectedProvider || selectedProvider === value) {
+      return
+    }
+    await onSave(selectedProvider)
+  }
+
+  return (
+    <motion.form
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25, delay: 0 }}
+      onSubmit={(e) => { void handleSubmit(e) }}
+      className="panel-surface flex flex-col gap-5 p-5"
+    >
+      <div className="flex items-center gap-3">
+        <div className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--color-border-subtle)] bg-[var(--color-bg-hover)]/60">
+          <BrainCircuit className="h-4 w-4 text-[var(--color-accent)]" />
+        </div>
+        <div>
+          <h3 className="text-[13px] font-semibold text-[var(--color-text-primary)]">{t('settings.leaderProviderTitle')}</h3>
+          <p className="text-[11px] tertiary-text">{t('settings.leaderProviderDesc')}</p>
+        </div>
+      </div>
+
+      <FormField label={t('settings.leaderProviderLabel')}>
+        <ThemedSelect
+          value={selectedProvider}
+          options={providers.map((provider) => ({
+            value: provider.key,
+            label: provider.model ? `${provider.key} (${provider.model})` : provider.key,
+          }))}
+          onChange={setSelectedProvider}
+          buttonClassName="px-4 py-2 text-[13px]"
+          placeholder={t('settings.leaderProviderPlaceholder')}
+        />
+      </FormField>
+
+      <div className="flex justify-end">
+        <SaveButton saving={saving} />
+      </div>
+    </motion.form>
   )
 }
 

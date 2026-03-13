@@ -41,5 +41,12 @@
             "interval_s": 1800,
             "enabled": true
         }
+    },
+    "leader_agent": {
+        "provider": "default"
+    },
+    "runtime": {
+        "agent_loop_max_iterations": 40,
+        "group_max_turns": 12
     }
 }

@@ -1,10 +1,11 @@
-import { Activity, Blocks, Brain, CalendarClock, Cat, History, MessageSquareText, Package, Radio, Settings, Sparkles } from 'lucide-react'
+import { Activity, Blocks, Brain, BrainCircuit, CalendarClock, Cat, History, MessageSquareText, Package, Radio, Settings, Sparkles } from 'lucide-react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 
 const navItemDefs = [
   { to: '/chat', label: 'Chat', descKey: 'nav.chatDesc', icon: MessageSquareText },
+  { to: '/groups', label: 'Groups', descKey: 'nav.groupsDesc', icon: BrainCircuit },
   { to: '/brains', label: 'Brains', descKey: 'nav.brainsDesc', icon: Brain },
   { to: '/claws', label: 'Claws', descKey: 'nav.clawsDesc', icon: Cat },
   { to: '/channels', label: 'Channels', descKey: 'nav.channelsDesc', icon: Radio },

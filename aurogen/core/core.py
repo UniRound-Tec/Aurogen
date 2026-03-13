@@ -4,8 +4,9 @@ import asyncio
 import json
 import re
 from contextlib import AsyncExitStack
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from channels.manager import get_channel_manager
 from config.config import config_manager
@@ -38,6 +39,17 @@ def _normalize_command_text(content: str) -> str:
     return text
 
 
+ExecutionEventSink = Callable[[str, dict[str, Any]], Awaitable[None]]
+
+
+@dataclass
+class ExecutionResult:
+    final_content: str
+    agent_name: str
+    session_id: str
+    message_tool_content: str | None = None
+
+
 class AgentLoop:
     """
     Agent 循环引擎，支持多轮 tool 调用。
@@ -48,8 +60,6 @@ class AgentLoop:
     3. 如果 LLM 返回 tool_calls → 执行工具 → 结果加入历史 → 回到步骤 2
     4. 如果 LLM 返回文本 → 返回最终回复
     """
-
-    MAX_ITERATIONS = 40  # 防止无限循环
 
     def __init__(
         self,
@@ -72,6 +82,12 @@ class AgentLoop:
         self._register_default_tools()
         self.subagent_manager = SubagentManager(provider=self.provider, workspace=self.workspace)
         self.tools.register(SpawnTool(self.subagent_manager))
+
+    def _max_iterations(self) -> int:
+        value = config_manager.get("runtime.agent_loop_max_iterations", 40)
+        if isinstance(value, int) and value > 0:
+            return value
+        return 40
 
     async def _handle_cron_job(self, job: CronJob) -> str | None:
         """Cron 任务回调：将消息注入入站队列，由 agent 正常处理并回复。"""
@@ -176,200 +192,45 @@ class AgentLoop:
         async with lock:
             await self._process_message(msg)
 
+    async def execute_once(
+        self,
+        *,
+        session_id: str,
+        content: str,
+        agent_name: str,
+        metadata: dict | None = None,
+        event_sink: ExecutionEventSink | None = None,
+        notify_channel_events: bool = True,
+        deliver_final: bool = True,
+        disabled_tools: set[str] | None = None,
+    ) -> ExecutionResult:
+        msg = InboundMessage(
+            session_id=session_id,
+            content=content,
+            agent_name=agent_name,
+            metadata=metadata or {},
+        )
+        lock = self._get_session_lock(session_id)
+        async with lock:
+            session = Session(session_id, agent_name=agent_name)
+            return await self._execute_with_session(
+                session,
+                msg,
+                event_sink=event_sink,
+                notify_channel_events=notify_channel_events,
+                deliver_final=deliver_final,
+                disabled_tools=disabled_tools,
+            )
+
     async def _process_message(self, msg: InboundMessage) -> None:
         """处理单条消息，包含多轮 tool 调用。"""
         print(f"[AgentLoop] 处理消息: {msg.content}")
         session: Session | None = None
 
         try:
-            # 获取或创建 session
             session = Session(msg.session_id, agent_name=msg.agent_name)
-            agent_name = session.agent_name
-            print(f"[AgentLoop] channel: {session.channel}, agent_name: {agent_name}")
-
-            # 注入当前会话上下文到 CronTool
-            cron_tool = self.tools.get("cron")
-            if cron_tool and isinstance(cron_tool, CronTool):
-                cron_tool.set_context(session.channel, session.chat_id)
-
-            # 注入当前会话上下文到 MessageTool
-            msg_tool = self.tools.get("message")
-            if msg_tool and isinstance(msg_tool, MessageTool):
-                msg_tool.set_context(session.channel, session.chat_id)
-
-            # 注入当前 agent 上下文到 MemoryTool
-            memory_tool = self.tools.get("memory")
-            if memory_tool and isinstance(memory_tool, MemoryTool):
-                memory_tool.set_context(agent_name)
-
-            # 注入当前会话上下文到 SpawnTool
-            spawn_tool = self.tools.get("spawn")
-            if spawn_tool and isinstance(spawn_tool, SpawnTool):
-                spawn_tool.set_context(session.channel, session.chat_id, agent_name)
-
-            # 检查是否是手动触发记忆整合命令
-            normalized_content = _normalize_command_text(msg.content)
-            if normalized_content == "/new":
-                print(f"[AgentLoop] 手动触发记忆整合: {msg.content!r} -> {normalized_content!r}")
-                memory_store = MemoryStore(self.workspace, agent_name)
-                success = await memory_store.consolidate(session, self.provider, archive_all=True)
-
-                # 整合完成后清空 session 消息
-                if success:
-                    session.messages = []
-                    session.last_consolidated = 0
-                    session._save_session()
-                    print(f"[AgentLoop] Session 已清空")
-
-                # 发送完成通知
-                result_msg = "记忆整合完成，会话已清空" if success else "记忆整合失败"
-                await get_channel_manager().send(session.channel, session.chat_id, result_msg)
-                return
-
-            session.add_message("user", msg.content)
-
-            # 使用 ContextBuilder 构建消息历史（包含运行时上下文）
-            messages = session.get_context_with_message(msg.content)
-            print(f"[AgentLoop] Agent name: {agent_name}")
-
-            # 多轮调用循环
-            iteration = 0
-            final_content = None
-            message_tool_content: str | None = None
-            tool_summaries: list[str] = []
-
-            while iteration < self.MAX_ITERATIONS:
-                iteration += 1
-                print(f"[AgentLoop] 第 {iteration} 轮调用")
-
-                # 调用 LLM，返回标准化 AdapterResponse
-                response: AdapterResponse = await self._call_llm(
-                    messages, tools=self.tools.get_definitions(), agent_name=agent_name
-                )
-
-                # 发布 thinking 事件（如有）
-                if response.thinking:
-                    print(f"[AgentLoop][Thinking]\n{response.thinking}")
-                    await get_channel_manager().notify(session.channel, AgentEvent(
-                        session_id=msg.session_id,
-                        event_type=EventType.THINKING,
-                        data={"content": response.thinking}
-                    ))
-
-                if response.tool_calls:
-                    # 有工具调用：执行工具，结果加入历史，继续循环
-                    print(
-                        f"[AgentLoop] LLM 请求调用工具: {[tc['function']['name'] for tc in response.tool_calls]}"
-                    )
-
-                    # 添加 assistant 消息（包含 tool_calls）
-                    asst_dict: dict = {
-                        "role": "assistant",
-                        "content": response.content or "",
-                        "tool_calls": response.tool_calls,
-                    }
-                    if response.thinking:
-                        asst_dict["reasoning_content"] = response.thinking
-                    # 多轮 thinking：将 reasoning_details 带回，供下一轮使用
-                    if response.reasoning_details:
-                        asst_dict["reasoning_details"] = response.reasoning_details
-                    messages.append(asst_dict)
-
-                    # 执行每个工具
-                    for tool_call in response.tool_calls:
-                        tool_name = tool_call["function"]["name"]
-                        tool_args = self._parse_tool_arguments(
-                            tool_call["function"]["arguments"]
-                        )
-                        tool_id = tool_call["id"]
-
-                        print(f"[AgentLoop] 执行工具: {tool_name}({tool_args})")
-
-                        # 发送 TOOL_CALL 事件
-                        await get_channel_manager().notify(session.channel, AgentEvent(
-                            session_id=msg.session_id,
-                            event_type=EventType.TOOL_CALL,
-                            data={"tool_name": tool_name, "args": tool_args}
-                        ))
-
-                        result = await self._execute_tool(tool_name, tool_args)
-
-                        # 记录 message 工具发送的内容
-                        if tool_name == "message" and "content" in tool_args:
-                            message_tool_content = tool_args["content"]
-
-                        # bootstrap 完成后清空 session，避免 bootstrap 对话干扰后续
-                        if (tool_name == "memory"
-                                and tool_args.get("action") == "complete_bootstrap"
-                                and "already completed" not in result):
-                            session.messages = []
-                            session.last_consolidated = 0
-                            session._save_session()
-                            print(f"[AgentLoop] Bootstrap 完成，session 已清空")
-
-                        # 构建精简工具摘要用于持久化
-                        brief_args = {k: (v[:60] + "..." if isinstance(v, str) and len(v) > 60 else v) for k, v in tool_args.items()}
-                        brief_result = result[:200] + ("..." if len(result) > 200 else "")
-                        tool_summaries.append(f"[{tool_name}({brief_args}) -> {brief_result}]")
-
-                        # 发送 TOOL_RESULT 事件
-                        await get_channel_manager().notify(session.channel, AgentEvent(
-                            session_id=msg.session_id,
-                            event_type=EventType.TOOL_RESULT,
-                            data={"tool_name": tool_name, "result": result}
-                        ))
-
-                        # 工具结果加入历史
-                        messages.append(
-                            {
-                                "role": "tool",
-                                "tool_call_id": tool_id,
-                                "name": tool_name,
-                                "content": result,
-                            }
-                        )
-                else:
-                    # 没有工具调用：返回最终回复
-                    final_content = response.content
-                    break
-
-            if final_content is None:
-                final_content = (
-                    f"达到最大迭代次数 ({self.MAX_ITERATIONS})，任务可能未完成。"
-                )
-
-            # message 工具已经通过 channel 直接发送了内容，
-            # 需要将其记录到 session，避免保存空回复
-            if message_tool_content and (not final_content or not final_content.strip()):
-                final_content = message_tool_content
-
-            if not final_content or not final_content.strip():
-                final_content = "Done."
-
-            # 保存 assistant 回复到 session（附带精简工具摘要）
-            if tool_summaries:
-                tool_log = "\n".join(tool_summaries)
-                session.add_message("assistant", final_content, tool_summary=tool_log)
-            else:
-                session.add_message("assistant", final_content)
-
-            # 通过 ChannelManager 路由最终回复到对应 channel
-            # 如果 message 工具已经发送过相同内容，跳过重复发送
-            if final_content and final_content != message_tool_content:
-                await get_channel_manager().send(session.channel, session.chat_id, final_content)
-            elif not message_tool_content:
-                await get_channel_manager().send(session.channel, session.chat_id, final_content)
-
-            print(f"[AgentLoop] 消息处理完成: {final_content[:50]}...")
-
-            # 自动触发记忆整合检查
-            provider_key = config_manager.get("agents." + agent_name + ".provider", "")
-            memory_window = config_manager.get("providers." + provider_key + ".memory_window", 100) if provider_key else 100
-            unconsolidated = len(session.messages) - session.last_consolidated
-            if unconsolidated >= memory_window:
-                print(f"[AgentLoop] 自动触发记忆整合: 未整合消息 {unconsolidated} >= {memory_window}")
-                memory_store = MemoryStore(self.workspace, agent_name)
-                await memory_store.consolidate(session, self.provider, memory_window=memory_window)
+            result = await self._execute_with_session(session, msg)
+            print(f"[AgentLoop] 消息处理完成: {result.final_content[:50]}...")
         except Exception as exc:
             print(f"[AgentLoop] 消息处理失败: {exc}")
 
@@ -379,6 +240,259 @@ class AgentLoop:
             error_message = f"运行失败：{exc}"
             session.add_message("assistant", error_message)
             await get_channel_manager().send(session.channel, session.chat_id, error_message)
+
+    async def _execute_with_session(
+        self,
+        session: Session,
+        msg: InboundMessage,
+        *,
+        event_sink: ExecutionEventSink | None = None,
+        notify_channel_events: bool = True,
+        deliver_final: bool = True,
+        disabled_tools: set[str] | None = None,
+    ) -> ExecutionResult:
+        agent_name = session.agent_name
+        print(f"[AgentLoop] channel: {session.channel}, agent_name: {agent_name}")
+
+        cron_tool = self.tools.get("cron")
+        if cron_tool and isinstance(cron_tool, CronTool):
+            cron_tool.set_context(session.channel, session.chat_id)
+
+        msg_tool = self.tools.get("message")
+        if msg_tool and isinstance(msg_tool, MessageTool):
+            msg_tool.set_context(session.channel, session.chat_id)
+
+        memory_tool = self.tools.get("memory")
+        if memory_tool and isinstance(memory_tool, MemoryTool):
+            memory_tool.set_context(agent_name)
+
+        spawn_tool = self.tools.get("spawn")
+        if spawn_tool and isinstance(spawn_tool, SpawnTool):
+            spawn_tool.set_context(session.channel, session.chat_id, agent_name)
+
+        normalized_content = _normalize_command_text(msg.content)
+        if normalized_content == "/new":
+            print(f"[AgentLoop] 手动触发记忆整合: {msg.content!r} -> {normalized_content!r}")
+            memory_store = MemoryStore(self.workspace, agent_name)
+            success = await memory_store.consolidate(session, self.provider, archive_all=True)
+
+            if success:
+                session.messages = []
+                session.last_consolidated = 0
+                session._save_session()
+                print(f"[AgentLoop] Session 已清空")
+
+            result_msg = "记忆整合完成，会话已清空" if success else "记忆整合失败"
+            if event_sink:
+                await event_sink(EventType.FINAL.value, {"content": result_msg})
+            if deliver_final:
+                await get_channel_manager().send(session.channel, session.chat_id, result_msg)
+            return ExecutionResult(
+                final_content=result_msg,
+                agent_name=agent_name,
+                session_id=msg.session_id,
+            )
+
+        session.add_message("user", msg.content)
+        messages = session.get_context()
+        print(f"[AgentLoop] Agent name: {agent_name}")
+
+        iteration = 0
+        final_content: str | None = None
+        message_tool_content: str | None = None
+        tool_summaries: list[str] = []
+        tool_definitions = self._get_tool_definitions(disabled_tools)
+
+        max_iterations = self._max_iterations()
+        while iteration < max_iterations:
+            iteration += 1
+            print(f"[AgentLoop] 第 {iteration} 轮调用")
+
+            response: AdapterResponse = await self._call_llm(
+                messages, tools=tool_definitions, agent_name=agent_name
+            )
+
+            if response.thinking:
+                print(f"[AgentLoop][Thinking]\n{response.thinking}")
+                await self._emit_event(
+                    session=session,
+                    session_id=msg.session_id,
+                    event_type=EventType.THINKING,
+                    data={"content": response.thinking},
+                    event_sink=event_sink,
+                    notify_channel_events=notify_channel_events,
+                )
+
+            if response.tool_calls:
+                print(
+                    f"[AgentLoop] LLM 请求调用工具: {[tc['function']['name'] for tc in response.tool_calls]}"
+                )
+
+                asst_dict: dict = {
+                    "role": "assistant",
+                    "content": response.content or "",
+                    "tool_calls": response.tool_calls,
+                }
+                if response.thinking:
+                    asst_dict["reasoning_content"] = response.thinking
+                if response.reasoning_details:
+                    asst_dict["reasoning_details"] = response.reasoning_details
+                messages.append(asst_dict)
+
+                for tool_call in response.tool_calls:
+                    tool_name = tool_call["function"]["name"]
+                    tool_args = self._parse_tool_arguments(
+                        tool_call["function"]["arguments"]
+                    )
+                    tool_id = tool_call["id"]
+
+                    print(f"[AgentLoop] 执行工具: {tool_name}({tool_args})")
+                    await self._emit_event(
+                        session=session,
+                        session_id=msg.session_id,
+                        event_type=EventType.TOOL_CALL,
+                        data={"tool_name": tool_name, "args": tool_args},
+                        event_sink=event_sink,
+                        notify_channel_events=notify_channel_events,
+                    )
+
+                    result = await self._execute_tool(
+                        tool_name,
+                        tool_args,
+                        disabled_tools=disabled_tools,
+                    )
+
+                    if tool_name == "message" and "content" in tool_args:
+                        message_tool_content = tool_args["content"]
+
+                    if (
+                        tool_name == "memory"
+                        and tool_args.get("action") == "complete_bootstrap"
+                        and "already completed" not in result
+                    ):
+                        session.messages = []
+                        session.last_consolidated = 0
+                        session._save_session()
+                        print(f"[AgentLoop] Bootstrap 完成，session 已清空")
+
+                    brief_args = {
+                        k: (v[:60] + "..." if isinstance(v, str) and len(v) > 60 else v)
+                        for k, v in tool_args.items()
+                    }
+                    brief_result = result[:200] + ("..." if len(result) > 200 else "")
+                    tool_summaries.append(f"[{tool_name}({brief_args}) -> {brief_result}]")
+
+                    await self._emit_event(
+                        session=session,
+                        session_id=msg.session_id,
+                        event_type=EventType.TOOL_RESULT,
+                        data={"tool_name": tool_name, "result": result},
+                        event_sink=event_sink,
+                        notify_channel_events=notify_channel_events,
+                    )
+
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool_id,
+                            "name": tool_name,
+                            "content": result,
+                        }
+                    )
+            else:
+                final_content = response.content
+                break
+
+        if final_content is None:
+            final_content = f"达到最大迭代次数 ({max_iterations})，任务可能未完成。"
+
+        if message_tool_content and (not final_content or not final_content.strip()):
+            final_content = message_tool_content
+
+        if not final_content or not final_content.strip():
+            final_content = "Done."
+
+        if tool_summaries:
+            tool_log = "\n".join(tool_summaries)
+            session.add_message("assistant", final_content, tool_summary=tool_log)
+        else:
+            session.add_message("assistant", final_content)
+
+        if final_content and final_content != message_tool_content:
+            await self._emit_final(
+                session=session,
+                session_id=msg.session_id,
+                content=final_content,
+                event_sink=event_sink,
+                deliver_final=deliver_final,
+            )
+        elif not message_tool_content:
+            await self._emit_final(
+                session=session,
+                session_id=msg.session_id,
+                content=final_content,
+                event_sink=event_sink,
+                deliver_final=deliver_final,
+            )
+
+        provider_key = config_manager.get("agents." + agent_name + ".provider", "")
+        memory_window = config_manager.get(
+            "providers." + provider_key + ".memory_window",
+            100,
+        ) if provider_key else 100
+        unconsolidated = len(session.messages) - session.last_consolidated
+        if unconsolidated >= memory_window:
+            print(f"[AgentLoop] 自动触发记忆整合: 未整合消息 {unconsolidated} >= {memory_window}")
+            memory_store = MemoryStore(self.workspace, agent_name)
+            await memory_store.consolidate(session, self.provider, memory_window=memory_window)
+
+        return ExecutionResult(
+            final_content=final_content,
+            agent_name=agent_name,
+            session_id=msg.session_id,
+            message_tool_content=message_tool_content,
+        )
+
+    def _get_tool_definitions(self, disabled_tools: set[str] | None = None) -> list[dict[str, Any]]:
+        blocked = disabled_tools or set()
+        return [
+            self.tools[name].to_schema()
+            for name in self.tools.tool_names
+            if name not in blocked
+        ]
+
+    async def _emit_event(
+        self,
+        *,
+        session: Session,
+        session_id: str,
+        event_type: EventType,
+        data: dict[str, Any],
+        event_sink: ExecutionEventSink | None = None,
+        notify_channel_events: bool = True,
+    ) -> None:
+        if event_sink:
+            await event_sink(event_type.value, data)
+        if notify_channel_events:
+            await get_channel_manager().notify(session.channel, AgentEvent(
+                session_id=session_id,
+                event_type=event_type,
+                data=data,
+            ))
+
+    async def _emit_final(
+        self,
+        *,
+        session: Session,
+        session_id: str,
+        content: str,
+        event_sink: ExecutionEventSink | None = None,
+        deliver_final: bool = True,
+    ) -> None:
+        if event_sink:
+            await event_sink(EventType.FINAL.value, {"content": content})
+        if deliver_final:
+            await get_channel_manager().send(session.channel, session.chat_id, content)
 
     async def _call_llm(
         self, messages: list[dict], tools: list[dict] | None = None, agent_name: str = "main"
@@ -404,8 +518,16 @@ class AgentLoop:
 
         return parsed_args
 
-    async def _execute_tool(self, name: str, args: dict) -> str:
+    async def _execute_tool(
+        self,
+        name: str,
+        args: dict,
+        *,
+        disabled_tools: set[str] | None = None,
+    ) -> str:
         """执行工具调用。"""
+        if disabled_tools and name in disabled_tools:
+            return f"Error: Tool '{name}' is disabled in this execution context"
         if name in self.tools:
             tool = self.tools[name]
             result = await tool.execute(**args)

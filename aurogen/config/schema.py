@@ -49,6 +49,15 @@ class HeartbeatConfig(BaseModel):
     enabled: bool = True
 
 
+class LeaderAgentConfig(BaseModel):
+    provider: str
+
+
+class RuntimeLimitsConfig(BaseModel):
+    agent_loop_max_iterations: int = 40
+    group_max_turns: int = 12
+
+
 class AppConfig(BaseModel):
     agents: Dict[str, AgentConfig] = {}
     providers: Dict[str, ProviderConfig] = {}
@@ -56,3 +65,5 @@ class AppConfig(BaseModel):
     mcp: Dict[str, MCPServerConfig] = {}
     auth: AuthConfig = Field(default_factory=AuthConfig)
     heartbeat: Dict[str, HeartbeatConfig] = Field(default_factory=dict)
+    leader_agent: LeaderAgentConfig | None = None
+    runtime: RuntimeLimitsConfig = Field(default_factory=RuntimeLimitsConfig)
