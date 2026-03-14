@@ -23,6 +23,7 @@
 
 ## 📢 新闻
 
+- **2026-03-14** — **Aurogen原生支持Agent Group模式啦！可以完成复杂任务，也可以闲聊**
 - **2026-03-12** — **文档网站上线，优化 UX 交互体验**
 - **2026-03-11** — **发布一键启动整合包，前往 [Releases](https://github.com/UniRound-Tec/Aurogen/releases) 下载使用！**
 - **2026-03-10** — **Aurogen 正式发布！赶快来尝尝🍊吧！**
@@ -142,40 +143,4 @@ npm run dev
 
 ### 开始使用：设置密码和 Provider
 
-1. 部署完成后，打开网页，设置密码（方便部署在云服务器 / VPS 上时保障安全）：
-
-![设置密码](../assets/setup-password.png)
-
-你将会看到主面板：
-
-![主面板](../assets/dashboard.png)
-
-右上角可以更换主题和语言：
-
-![主题与语言](../assets/theme-language.png)
-
-2. 左侧侧边栏聚集了所有功能区，首先点击 **Providers**：
-
-![Providers 面板](../assets/providers.png)
-
-3. 直接编辑默认的 Provider，填入 API Key 和 Base URL，点击保存。
-
-4. 然后在侧边栏点击 **Agent**：
-
-![Agent 配置](../assets/agent-config.png)
-
-5. 确认 Provider 选择的是你刚刚配置好的，然后设置 Model ID。你可以选择是否启用 Thinking。
-
-6. （可选）点击 **Channel** 面板，确认 Web Channel 使用的是你刚刚配置好的 Agent：
-
-![Channel 配置](../assets/channel-config.png)
-
-7. 然后就可以在 Web Channel 开始聊天啦！
-
-![Web Channel 聊天](../assets/webchannel-chat.png)
-
----
-
-### 文档
-
-前往 [docs.aurogen.site](https://docs.aurogen.site) 查看完整文档。
+前往 [docs.aurogen.site](https://docs.aurogen.site) 查看文档。

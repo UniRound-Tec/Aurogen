@@ -23,6 +23,7 @@
 
 ## 📢 News
 
+- **2026-03-14** — **Aurogen now natively supports Agent Group mode — tackle complex tasks or just have a multi-agent conversation!**
 - **2026-03-12** — **Documentation site is live, with UX improvements!**
 - **2026-03-11** — **We released one-click installer packages — download from [Releases](https://github.com/UniRound-Tec/Aurogen/releases)!**
 - **2026-03-10** — **Aurogen is live! Come taste an 🍊!**
@@ -51,7 +52,7 @@ Visit [docs.aurogen.site](https://docs.aurogen.site) for the full documentation.
 | Tools / Skills | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Sub-agents | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Web panel | ✅ | ✅ | ✖️ | ✖️ | ✖️ |
-| Multi-agent (with subagents) | ✅ | ✖️ | ✖️ | ✖️ | ✖️ |
+| Multi-agent (not subagent) | ✅ | ✖️ | ✖️ | ✖️ | ✖️ |
 | Multi-instance per channel | ✅ | ✖️ | ✖️ | ✖️ | ✖️ |
 | BOOTSTRAP mechanism | ✅ | ✅ | ✖️ | ✖️ | ✖️ |
 | **Minimum hardware cost** | Linux SBC ~$50 | Mac Mini $599 | Linux SBC ~$50 | Linux Board $10 | Any hardware ~$10 |
@@ -142,41 +143,5 @@ npm run dev
 ```
 
 ### Getting Started: Set Password and Provider
-
-1. After deployment, open the web panel and set your password (especially useful when deploying on a cloud server / VPS):
-
-![Set Password](./assets/setup-password.png)
-
-You will see the main dashboard:
-
-![Dashboard](./assets/dashboard.png)
-
-Use the top-right corner to switch themes and languages:
-
-![Theme & Language](./assets/theme-language.png)
-
-2. The left sidebar contains all feature panels. First, click **Providers**:
-
-![Providers Panel](./assets/providers.png)
-
-3. Edit the default Provider — fill in your API Key and Base URL, then click Save.
-
-4. Next, click **Agent** in the sidebar:
-
-![Agent Configuration](./assets/agent-config.png)
-
-5. Make sure the Provider is set to the one you just configured, then set the Model ID. You can choose whether to enable Thinking.
-
-6. (Optional) Click the **Channel** panel to confirm the Web Channel is using the Agent you just configured:
-
-![Channel Configuration](./assets/channel-config.png)
-
-7. You're all set — start chatting in the Web Channel!
-
-![Web Channel Chat](./assets/webchannel-chat.png)
-
----
-
-### Documentation
 
 Visit [docs.aurogen.site](https://docs.aurogen.site) for the full documentation.
